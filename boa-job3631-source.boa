@@ -1,0 +1,47 @@
+# Finding top imports
+ProjectsByFeature: output top(200) of string weight int;
+features: map[string] of int;
+
+getAPI := function(importName : string) {
+    
+        parts := splitall(importName, `\.`);
+        if(len(parts) >= 2){   
+            s := parts[0] + "." + parts[1];
+            start := 2;
+            if (match("static", parts[0])){
+                staticString := splitall(parts[0], "\\s");
+                s = trim(staticString[1]);
+            }
+            for (i := start; i < len(parts) - 1; i++) {
+                s = s + "." + parts[i];
+                if (lookup(features, s, -1) == -1) # new API names
+                    features[s] = 1;
+            }
+        }    
+    };
+    
+visit(input, visitor {
+    # only look at the latest snapshot of Java files
+	before n: CodeRepository -> {
+		snapshot := getsnapshot(n, "SOURCE_JAVA_JLS");
+		foreach (i: int; def(snapshot[i]))
+			visit(snapshot[i]);
+		stop;
+	}
+	# look for imports
+	before node: ASTRoot -> foreach (j: int; def(node.imports[j])) getAPI(node.imports[j]);
+    # look for FQN
+	before node: Type -> getAPI(node.name);
+});
+
+k := keys(features);
+foreach (i: int; def(k[i]))
+    foreach (j: int; def(k[j]))
+        if (i != j && strfind(k[i], k[j]) == 0) {
+            features[k[i]] = features[k[i]] + features[k[j]];
+            features[k[j]] = 0;
+        }
+
+foreach (i: int; def(k[i]))
+    if (features[k[i]] > 0)
+        ProjectsByFeature << k[i] weight features[k[i]];
